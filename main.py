@@ -23,8 +23,14 @@ if not os.path.exists("tasks"):
 
 app.mount("/tasks", StaticFiles(directory=os.path.abspath("tasks")),name="tasks")
 
-app.include_router()
 
+@app.get("/")
+async def root():
+    return {
+        "app_name": "Story Generate API",
+        "docs_url": "/docs"
+    }
+    
 if __name__=="__main__":
     import uvicorn
     uvicorn.run("main:app", host="127.0.0.1", port=18000, reload=True)
