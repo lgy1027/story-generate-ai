@@ -2,11 +2,13 @@ import json
 from app.config import get_settings
 from openai import OpenAI
 import dashscope
-from app.schemas.llm import StoryGenerationRequest, StoryGenerationResponse
+from app.schemas.llm import StoryGenerationRequest
 from typing import List, Dict, Any
 from app.models.const import Language,LANGUAGE_NAMES
 from loguru import logger
 from app.exceptions import LLMResponseValidationError
+from dashscope import ImageSynthesis
+import asyncio
 
 
 settings = get_settings()
@@ -32,6 +34,94 @@ class LLMService:
         self.text_llm_model = settings.text_llm_model
         self.image_llm_model = settings.image_llm_model
     
+    def get_llm_providers(self) -> Dict[str, List[str]]:
+        imgLLMList = []
+        textLLMList = []
+        if settings.openai_api_key:
+            textLLMList.append("openai")
+            imgLLMList.append("openai")
+        if settings.aliyun_api_key:
+            textLLMList.append("aliyun")
+            imgLLMList.append("aliyun")
+        if settings.deepseek_api_key:
+            textLLMList.append("deepseek")
+        if settings.ollama_api_key:
+            textLLMList.append("ollama")
+        return { "textLLMProviders": textLLMList, "imageLLMProviders": imgLLMList }
+
+
+    async def generate_story_with_images(self, request: StoryGenerationRequest) -> List[Dict[str, Any]]: 
+        """生成故事和配图
+        Args:
+            story_prompt (str, optional): 故事提示. Defaults to None.
+            language (Language, optional): 语言. Defaults to Language.CHINESE.
+            segments (int, optional): 故事分段数. Defaults to 3.
+
+        Returns:
+            List[Dict[str, Any]]: 故事场景列表，每个场景包含文本、图片提示词和图片URL
+        """
+        try:
+            story_segments = await self.generate_story(request)
+            task_mapping = []
+            for segment in story_segments:
+                task = self.generate_image(prompt=segment["image_prompt"], image_llm_provider=request.image_llm_provider or None, image_llm_model=request.image_llm_model or None)
+                # 将 segment 和对应的任务添加到映射列表中
+                task_mapping.append((segment, task))
+            # 提取所有任务
+            tasks = [task for _, task in task_mapping]
+            # 使用 asyncio.gather() 并发运行所有任务并等待结果
+            results = await asyncio.gather(*tasks)
+            # 将结果赋值给对应的 segment
+            for (segment, _), url in zip(task_mapping, results):
+                segment["url"] = url
+            return story_segments
+        except Exception as e:
+            logger.error(f"Failed to generate image for segment: {e}")
+            return story_segments
+    async def generate_image(self, *, prompt: str, image_llm_provider: str = None, image_llm_model: str = None, resolution: str = "1024*1024") -> str:
+        # return "https://dashscope-result-bj.oss-cn-beijing.aliyuncs.com/1d/56/20250118/3c4cc727/4fc622b5-54a6-484c-bf1f-f1cfb66ace2d-1.png?Expires=1737290655&OSSAccessKeyId=LTAI5tQZd8AEcZX6KZV4G8qL&Signature=W8D4CN3uonQ2pL1e9xGMWufz33E%3D"
+        """生成图片
+
+        Args:
+            prompt (str): 图片描述
+            resolution (str): 图片分辨率，默认为 1024x1024
+
+        Returns:
+            str: 图片URL
+        """
+        if image_llm_provider == None:
+            image_llm_provider = settings.image_provider
+        if image_llm_model == None:
+            image_llm_model = settings.image_llm_model
+
+        try:
+            safe_prompt = f"Create a safe, family-friendly illustration. {prompt} The image should be appropriate for all ages, non-violent, and non-controversial."
+            if image_llm_provider == "aliyun":
+                resp = ImageSynthesis.call(
+                    prompt=safe_prompt,
+                    size=resolution,
+                    model=image_llm_model,
+                )
+                if resp.status_code == 200:
+                    for item in resp.output.results:
+                        return item.url 
+                else:
+                    error_message = f'Failed, status_code: {resp.status_code}, code: {resp.code}, message: {resp.message}'
+                    logger.error(f"aliyun image generation error: {error_message}")
+                    raise LLMResponseValidationError(error_message)
+            elif image_llm_provider == "openai":
+                resp = self.openai_client.images.generate(
+                    model=image_llm_model,
+                    prompt=safe_prompt,
+                    n=1,
+                    size=resolution,
+                    quality="standard",
+                )
+                logger.info(f"openai image generation response: {json.dumps(resp, indent=4, ensure_ascii=False)}")
+                return resp.data[0].url
+        except Exception as e:
+            logger.error(f"Failed to generate image: {e}")
+            raise ""    
     async def generate_story(self, request: StoryGenerationRequest) -> List[Dict[str, Any]]:
         """生成故事场景
 
@@ -58,6 +148,8 @@ class LLMService:
         logger.info(f"Generate story: {json.dumps(response, indent=4, ensure_ascii=False)}")
         
         self._validate_story_response(response)
+
+        return response
         
     def normalize_keys(self,data):
         """
@@ -121,7 +213,7 @@ class LLMService:
         Raises:
             Exception: 请求失败或解析失败时抛出异常
         """
-        if text_llm_provider == "":
+        if text_llm_provider == None:
             text_llm_provider = settings.text_provider
         if text_llm_provider == "aliyun":
             text_client = aliyun_text_client
@@ -132,7 +224,7 @@ class LLMService:
         elif text_llm_provider == "ollama":
             text_client = ollama_client
         
-        if text_llm_model == "":
+        if text_llm_model == None:
             text_llm_model = settings.text_llm_model
             
         response = text_client.chat.completions.create(
@@ -204,3 +296,5 @@ class LLMService:
             ]
         }}
         """
+    
+llm_service = LLMService()

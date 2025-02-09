@@ -10,7 +10,7 @@ class StoryGenerationRequest(BaseModel):
     image_llm_provider: Optional[str] = Field(default=None, description="图像模型供应商")
     image_llm_model: Optional[str] = Field(default=None, description="图像模型名称")
     segments: int = Field(...,ge=1,le=10, description="story segments")
-    story_prompt: str = Field(..., min_length=20,max_length=4000,description="story prompt")
+    story_prompt: str = Field(..., min_length=5,max_length=4000,description="story prompt")
     language: Language = Field(default=Language.CHINESE_CN, description="story language")
 
 class StorySegment(BaseModel):
@@ -20,3 +20,12 @@ class StorySegment(BaseModel):
     
 class StoryGenerationResponse(BaseModel):
      segments: List[StorySegment] = Field(..., description="Generated story segments")
+
+class ImageGenerationRequest(BaseModel):
+    resolution: Optional[str] = Field(default="1024*1024", description="分辨率")
+    image_llm_provider: Optional[str] = Field(default=None, description="图像模型供应商")
+    image_llm_model: Optional[str] = Field(default=None, description="图像模型名称")
+    prompt: str = Field(..., min_length=20,max_length=4000,description="story prompt")
+
+class ImageGenerationResponse(BaseModel):
+    image_url: str = Field(..., description="generation image url")

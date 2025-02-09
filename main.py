@@ -2,6 +2,7 @@ import os
 from fastapi import FastAPI, APIRouter
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from app.api import router as api
 
 app = FastAPI(
     title="StoryFlicks Backend API",
@@ -22,7 +23,7 @@ if not os.path.exists("tasks"):
     os.mkdir("tasks")
 
 app.mount("/tasks", StaticFiles(directory=os.path.abspath("tasks")),name="tasks")
-
+app.include_router(api)
 
 @app.get("/")
 async def root():
