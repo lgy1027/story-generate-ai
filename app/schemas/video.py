@@ -24,3 +24,9 @@ class VideoGenerateResponse(BaseModel):
     success: bool
     data: Optional[Dict[str,Any]] = None
     message: Optional[str] = None
+    
+class StoryScene(BaseModel):
+    """故事场景"""
+    text: str = Field(description="场景文本")
+    image_prompt: str = Field(description="图片生成提示词")
+    url: Optional[str] = Field(default=None, description="生成的图片 URL")
